@@ -19,7 +19,6 @@
 package org.apache.flink.table.runtime.operators.join.stream;
 
 import org.apache.flink.api.common.functions.DefaultOpenContext;
-import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
 import org.apache.flink.streaming.api.operators.TimestampedCollector;
 import org.apache.flink.streaming.api.operators.TwoInputStreamOperator;
@@ -29,7 +28,6 @@ import org.apache.flink.table.runtime.generated.JoinCondition;
 import org.apache.flink.table.runtime.operators.join.JoinConditionWithNullFilters;
 import org.apache.flink.table.runtime.operators.join.stream.state.JoinInputSideSpec;
 import org.apache.flink.table.runtime.operators.join.stream.state.JoinRecordStateView;
-import org.apache.flink.table.runtime.operators.join.stream.state.OuterJoinRecordStateView;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.util.IterableIterator;
 
@@ -105,15 +103,27 @@ public abstract class AbstractStreamingJoinOperator extends AbstractStreamOperat
         }
     }
 
+    protected boolean otherRecordHasNoAssociationsInInputSide(
+            Iterator<RowData> inputSideIterator, RowData otherRecord, boolean inputIsLeft) {
+        while (inputSideIterator.hasNext()) {
+            if (inputIsLeft
+                    ? joinCondition.apply(inputSideIterator.next(), otherRecord)
+                    : joinCondition.apply(otherRecord, inputSideIterator.next())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /**
      * The {@link AssociatedRecords} is the records associated to the input row. It is a wrapper of
      * {@code List<OuterRecord>} which provides two helpful methods {@link #getRecords()} and {@link
      * #getOuterRecords()}. See the method Javadoc for more details.
      */
     protected static final class AssociatedRecords {
-        private final List<OuterRecord> records;
+        private final List<RowData> records;
 
-        private AssociatedRecords(List<OuterRecord> records) {
+        private AssociatedRecords(List<RowData> records) {
             checkNotNull(records);
             this.records = records;
         }
@@ -135,10 +145,10 @@ public abstract class AbstractStreamingJoinOperator extends AbstractStreamOperat
         }
 
         /**
-         * Gets the iterable of {@link OuterRecord} which composites record and numOfAssociations.
-         * This is usually be called when the {@link AssociatedRecords} is from outer side.
+         * Gets the iterable of {@link RowData} which composites record and numOfAssociations. This
+         * is usually be called when the {@link AssociatedRecords} is from outer side.
          */
-        public Iterable<OuterRecord> getOuterRecords() {
+        public Iterable<RowData> getOuterRecords() {
             return records;
         }
 
@@ -152,32 +162,15 @@ public abstract class AbstractStreamingJoinOperator extends AbstractStreamOperat
                 JoinRecordStateView otherSideStateView,
                 JoinCondition condition)
                 throws Exception {
-            List<OuterRecord> associations = new ArrayList<>();
-            if (otherSideStateView instanceof OuterJoinRecordStateView) {
-                OuterJoinRecordStateView outerStateView =
-                        (OuterJoinRecordStateView) otherSideStateView;
-                Iterable<Tuple2<RowData, Integer>> records =
-                        outerStateView.getRecordsAndNumOfAssociations();
-                for (Tuple2<RowData, Integer> record : records) {
-                    boolean matched =
-                            inputIsLeft
-                                    ? condition.apply(input, record.f0)
-                                    : condition.apply(record.f0, input);
-                    if (matched) {
-                        associations.add(new OuterRecord(record.f0, record.f1));
-                    }
-                }
-            } else {
-                Iterable<RowData> records = otherSideStateView.getRecords();
-                for (RowData record : records) {
-                    boolean matched =
-                            inputIsLeft
-                                    ? condition.apply(input, record)
-                                    : condition.apply(record, input);
-                    if (matched) {
-                        // use -1 as the default number of associations
-                        associations.add(new OuterRecord(record, -1));
-                    }
+            List<RowData> associations = new ArrayList<>();
+            Iterable<RowData> records = otherSideStateView.getRecords();
+            for (RowData record : records) {
+                boolean matched =
+                        inputIsLeft
+                                ? condition.apply(input, record)
+                                : condition.apply(record, input);
+                if (matched) {
+                    associations.add(record);
                 }
             }
             return new AssociatedRecords(associations);
@@ -186,10 +179,10 @@ public abstract class AbstractStreamingJoinOperator extends AbstractStreamOperat
 
     /** A lazy Iterable which transform {@code List<OuterReocord>} to {@code Iterable<RowData>}. */
     private static final class RecordsIterable implements IterableIterator<RowData> {
-        private final List<OuterRecord> records;
+        private final List<RowData> records;
         private int index = 0;
 
-        private RecordsIterable(List<OuterRecord> records) {
+        private RecordsIterable(List<RowData> records) {
             this.records = records;
         }
 
@@ -206,29 +199,9 @@ public abstract class AbstractStreamingJoinOperator extends AbstractStreamOperat
 
         @Override
         public RowData next() {
-            RowData row = records.get(index).record;
+            RowData row = records.get(index);
             index++;
             return row;
-        }
-    }
-
-    /**
-     * An {@link OuterRecord} is a composite of record and {@code numOfAssociations}. The {@code
-     * numOfAssociations} represents the number of associated records in the other side. It is used
-     * when the record is from outer side (e.g. left side in LEFT OUTER JOIN). When the {@code
-     * numOfAssociations} is ZERO, we need to send a null padding row. This is useful to avoid
-     * recompute the associated numbers every time.
-     *
-     * <p>When the record is from inner side (e.g. right side in LEFT OUTER JOIN), the {@code
-     * numOfAssociations} will always be {@code -1}.
-     */
-    protected static final class OuterRecord {
-        public final RowData record;
-        public final int numOfAssociations;
-
-        private OuterRecord(RowData record, int numOfAssociations) {
-            this.record = record;
-            this.numOfAssociations = numOfAssociations;
         }
     }
 }

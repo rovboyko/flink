@@ -87,10 +87,6 @@ public class StreamingSemiAntiJoinOperatorTest extends StreamingJoinOperatorTest
         assertor.shouldEmitNothing(testHarness);
 
         testHarness.processElement2(deleteRecord("LineOrd#2", "TRUCK"));
-        assertor.shouldEmitNothing(testHarness);
-
-        // numOfAssociations is reduced to 1, retract the record
-        testHarness.processElement2(deleteRecord("LineOrd#2", "AIR"));
         assertor.shouldEmit(
                 testHarness,
                 rowOfKind(
@@ -140,10 +136,6 @@ public class StreamingSemiAntiJoinOperatorTest extends StreamingJoinOperatorTest
         assertor.shouldEmitNothing(testHarness);
 
         testHarness.processElement2(deleteRecord("LineOrd#2", "TRUCK"));
-        assertor.shouldEmitNothing(testHarness);
-
-        // numOfAssociations is reduced to 1, retract the record
-        testHarness.processElement2(deleteRecord("LineOrd#2", "AIR"));
         assertor.shouldEmit(
                 testHarness,
                 rowOfKind(

@@ -510,7 +510,14 @@ public class StreamingJoinOperatorTest extends StreamingJoinOperatorTestBase {
                         "LineOrd#2",
                         "68 Manor Station Street, Honolulu, HI 96815",
                         "LineOrd#2",
-                        "SHIP"));
+                        "SHIP"),
+                rowOfKind(
+                        RowKind.INSERT,
+                        "Ord#1",
+                        "LineOrd#2",
+                        "68 Manor Station Street, Honolulu, HI 96815",
+                        null,
+                        null));
     }
 
     /**

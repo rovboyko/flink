@@ -25,8 +25,6 @@ import org.apache.flink.table.runtime.generated.GeneratedJoinCondition;
 import org.apache.flink.table.runtime.operators.join.stream.state.JoinInputSideSpec;
 import org.apache.flink.table.runtime.operators.join.stream.state.JoinRecordStateView;
 import org.apache.flink.table.runtime.operators.join.stream.state.JoinRecordStateViews;
-import org.apache.flink.table.runtime.operators.join.stream.state.OuterJoinRecordStateView;
-import org.apache.flink.table.runtime.operators.join.stream.state.OuterJoinRecordStateViews;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.types.RowKind;
 
@@ -39,7 +37,7 @@ public class StreamingSemiAntiJoinOperator extends AbstractStreamingJoinOperator
     private final boolean isAntiJoin;
 
     // left join state
-    private transient OuterJoinRecordStateView leftRecordStateView;
+    private transient JoinRecordStateView leftRecordStateView;
     // right join state
     private transient JoinRecordStateView rightRecordStateView;
 
@@ -70,7 +68,7 @@ public class StreamingSemiAntiJoinOperator extends AbstractStreamingJoinOperator
         super.open();
 
         this.leftRecordStateView =
-                OuterJoinRecordStateViews.create(
+                JoinRecordStateViews.create(
                         getRuntimeContext(),
                         LEFT_RECORDS_STATE_NAME,
                         leftInputSideSpec,
@@ -118,7 +116,7 @@ public class StreamingSemiAntiJoinOperator extends AbstractStreamingJoinOperator
         if (RowDataUtil.isAccumulateMsg(input)) {
             // erase RowKind for state updating
             input.setRowKind(RowKind.INSERT);
-            leftRecordStateView.addRecord(input, associatedRecords.size());
+            leftRecordStateView.addRecord(input);
         } else { // input is retract
             // erase RowKind for state updating
             input.setRowKind(RowKind.INSERT);
@@ -171,47 +169,45 @@ public class StreamingSemiAntiJoinOperator extends AbstractStreamingJoinOperator
         AssociatedRecords associatedRecords =
                 AssociatedRecords.of(input, false, leftRecordStateView, joinCondition);
         if (isAccumulateMsg) { // record is accumulate
-            rightRecordStateView.addRecord(input);
             if (!associatedRecords.isEmpty()) {
                 // there are matched rows on the other side
-                for (OuterRecord outerRecord : associatedRecords.getOuterRecords()) {
-                    RowData other = outerRecord.record;
-                    if (outerRecord.numOfAssociations == 0) {
+                for (RowData outerRecord : associatedRecords.getOuterRecords()) {
+                    if (otherRecordHasNoAssociationsInInputSide(
+                            rightRecordStateView.getRecords().iterator(), outerRecord, false)) {
                         if (isAntiJoin) {
                             // send -D[other]
-                            other.setRowKind(RowKind.DELETE);
+                            outerRecord.setRowKind(RowKind.DELETE);
                         } else {
                             // send +I/+U[other] (using input RowKind)
-                            other.setRowKind(inputRowKind);
+                            outerRecord.setRowKind(inputRowKind);
                         }
-                        collector.collect(other);
+                        collector.collect(outerRecord);
                         // set header back to INSERT, because we will update the other row to state
-                        other.setRowKind(RowKind.INSERT);
-                    } // ignore when number > 0
-                    leftRecordStateView.updateNumOfAssociations(
-                            other, outerRecord.numOfAssociations + 1);
+                        outerRecord.setRowKind(RowKind.INSERT);
+                    } // ignore when other record already associated with any from right side
                 }
             } // ignore when associated number == 0
+
+            rightRecordStateView.addRecord(input);
         } else { // retract input
             rightRecordStateView.retractRecord(input);
             if (!associatedRecords.isEmpty()) {
                 // there are matched rows on the other side
-                for (OuterRecord outerRecord : associatedRecords.getOuterRecords()) {
-                    RowData other = outerRecord.record;
-                    if (outerRecord.numOfAssociations == 1) {
+                for (RowData outerRecord : associatedRecords.getOuterRecords()) {
+                    if (otherRecordHasNoAssociationsInInputSide(
+                            rightRecordStateView.getRecords().iterator(), outerRecord, false)) {
                         if (!isAntiJoin) {
                             // send -D/-U[other] (using input RowKind)
-                            other.setRowKind(inputRowKind);
+                            outerRecord.setRowKind(inputRowKind);
                         } else {
                             // send +I[other]
-                            other.setRowKind(RowKind.INSERT);
+                            outerRecord.setRowKind(RowKind.INSERT);
                         }
-                        collector.collect(other);
+                        collector.collect(outerRecord);
                         // set RowKind back, because we will update the other row to state
-                        other.setRowKind(RowKind.INSERT);
-                    } // ignore when number > 0
-                    leftRecordStateView.updateNumOfAssociations(
-                            other, outerRecord.numOfAssociations - 1);
+                        outerRecord.setRowKind(RowKind.INSERT);
+                    } // ignore when after right side retract other record still associated with any
+                    // from right side
                 }
             } // ignore when associated number == 0
         }
