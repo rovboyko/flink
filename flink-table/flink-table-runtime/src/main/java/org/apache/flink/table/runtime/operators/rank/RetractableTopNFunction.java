@@ -93,7 +93,8 @@ public class RetractableTopNFunction extends AbstractTopNFunction {
             RankRange rankRange,
             GeneratedRecordEqualiser generatedEqualiser,
             boolean generateUpdateBefore,
-            boolean outputRankNumber) {
+            boolean outputRankNumber,
+            long outputBufferSize) {
         super(
                 ttlConfig,
                 inputRowType,
@@ -102,7 +103,8 @@ public class RetractableTopNFunction extends AbstractTopNFunction {
                 rankType,
                 rankRange,
                 generateUpdateBefore,
-                outputRankNumber);
+                outputRankNumber,
+                outputBufferSize);
         this.sortKeyType = sortKeySelector.getProducedType();
         this.serializableComparator = comparableRecordComparator;
         this.generatedEqualiser = generatedEqualiser;
@@ -159,7 +161,7 @@ public class RetractableTopNFunction extends AbstractTopNFunction {
             if (outputRankNumber || hasOffset()) {
                 // the without-number-algorithm can't handle topN with offset,
                 // so use the with-number-algorithm to handle offset
-                emitRecordsWithRowNumber(sortedMap, sortKey, input, out);
+                emitRecordsWithRowNumber(sortedMap, sortKey, input, out, ctx);
             } else {
                 emitRecordsWithoutRowNumber(sortedMap, sortKey, input, out);
             }
@@ -177,9 +179,9 @@ public class RetractableTopNFunction extends AbstractTopNFunction {
             if (outputRankNumber || hasOffset()) {
                 // the without-number-algorithm can't handle topN with offset,
                 // so use the with-number-algorithm to handle offset
-                stateRemoved = retractRecordWithRowNumber(sortedMap, sortKey, input, out);
+                stateRemoved = retractRecordWithRowNumber(sortedMap, sortKey, input, out, ctx);
             } else {
-                stateRemoved = retractRecordWithoutRowNumber(sortedMap, sortKey, input, out);
+                stateRemoved = retractRecordWithoutRowNumber(sortedMap, sortKey, input, out, ctx);
             }
 
             // and then update sortedMap
@@ -216,6 +218,8 @@ public class RetractableTopNFunction extends AbstractTopNFunction {
             }
         }
         treeMap.update(sortedMap);
+
+        finishElementProcessing(input);
     }
 
     // ------------- ROW_NUMBER-------------------------------
@@ -245,10 +249,11 @@ public class RetractableTopNFunction extends AbstractTopNFunction {
             SortedMap<RowData, Long> sortedMap,
             RowData sortKey,
             RowData inputRow,
-            Collector<RowData> out)
+            Collector<RowData> out,
+            Context ctx)
             throws Exception {
         Iterator<Map.Entry<RowData, Long>> iterator = sortedMap.entrySet().iterator();
-        long currentRank = 0L;
+        int currentRank = 0;
         RowData currentRow = null;
         boolean findsSortKey = false;
         while (iterator.hasNext() && isInRankEnd(currentRank)) {
@@ -266,8 +271,8 @@ public class RetractableTopNFunction extends AbstractTopNFunction {
                     int i = 0;
                     while (i < inputs.size() && isInRankEnd(currentRank)) {
                         RowData prevRow = inputs.get(i);
-                        collectUpdateBefore(out, prevRow, currentRank);
-                        collectUpdateAfter(out, currentRow, currentRank);
+                        collectUpdateBefore(out, ctx.getCurrentKey(), prevRow, currentRank);
+                        collectUpdateAfter(out, ctx.getCurrentKey(), currentRow, currentRank);
                         currentRow = prevRow;
                         currentRank += 1;
                         i++;
@@ -279,7 +284,7 @@ public class RetractableTopNFunction extends AbstractTopNFunction {
         }
         if (isInRankEnd(currentRank)) {
             // there is no enough elements in Top-N, emit INSERT message for the new record.
-            collectInsert(out, currentRow, currentRank);
+            collectInsert(out, ctx.getCurrentKey(), currentRow, currentRank);
         }
     }
 
@@ -341,10 +346,11 @@ public class RetractableTopNFunction extends AbstractTopNFunction {
             SortedMap<RowData, Long> sortedMap,
             RowData sortKey,
             RowData inputRow,
-            Collector<RowData> out)
+            Collector<RowData> out,
+            Context ctx)
             throws Exception {
         Iterator<Map.Entry<RowData, Long>> iterator = sortedMap.entrySet().iterator();
-        long currentRank = 0L;
+        int currentRank = 0;
         RowData prevRow = null;
         boolean findsSortKey = false;
         while (iterator.hasNext() && isInRankEnd(currentRank)) {
@@ -363,8 +369,8 @@ public class RetractableTopNFunction extends AbstractTopNFunction {
                             findsSortKey = true;
                             inputIter.remove();
                         } else if (findsSortKey) {
-                            collectUpdateBefore(out, prevRow, currentRank);
-                            collectUpdateAfter(out, currentRow, currentRank);
+                            collectUpdateBefore(out, ctx.getCurrentKey(), prevRow, currentRank);
+                            collectUpdateAfter(out, ctx.getCurrentKey(), currentRow, currentRank);
                             prevRow = currentRow;
                         }
                         currentRank += 1;
@@ -383,8 +389,8 @@ public class RetractableTopNFunction extends AbstractTopNFunction {
                     int i = 0;
                     while (i < inputs.size() && isInRankEnd(currentRank)) {
                         RowData currentRow = inputs.get(i);
-                        collectUpdateBefore(out, prevRow, currentRank);
-                        collectUpdateAfter(out, currentRow, currentRank);
+                        collectUpdateBefore(out, ctx.getCurrentKey(), prevRow, currentRank);
+                        collectUpdateAfter(out, ctx.getCurrentKey(), currentRow, currentRank);
                         prevRow = currentRow;
                         currentRank += 1;
                         i++;
@@ -399,7 +405,7 @@ public class RetractableTopNFunction extends AbstractTopNFunction {
                 stateStaledErrorHandle();
             } else {
                 // there is no enough elements in Top-N, emit DELETE message for the retract record.
-                collectDelete(out, prevRow, currentRank);
+                collectDelete(out, ctx.getCurrentKey(), prevRow, currentRank);
             }
         }
 
@@ -416,10 +422,11 @@ public class RetractableTopNFunction extends AbstractTopNFunction {
             SortedMap<RowData, Long> sortedMap,
             RowData sortKey,
             RowData inputRow,
-            Collector<RowData> out)
+            Collector<RowData> out,
+            Context ctx)
             throws Exception {
         Iterator<Map.Entry<RowData, Long>> iterator = sortedMap.entrySet().iterator();
-        long nextRank = 1L; // the next rank number, should be in the rank range
+        int nextRank = 1; // the next rank number, should be in the rank range
         boolean findsSortKey = false;
         while (iterator.hasNext() && isInRankEnd(nextRank)) {
             Map.Entry<RowData, Long> entry = iterator.next();
@@ -433,13 +440,13 @@ public class RetractableTopNFunction extends AbstractTopNFunction {
                     while (inputIter.hasNext() && isInRankEnd(nextRank)) {
                         RowData prevRow = inputIter.next();
                         if (!findsSortKey && equaliser.equals(prevRow, inputRow)) {
-                            collectDelete(out, prevRow, nextRank);
+                            collectDelete(out, ctx.getCurrentKey(), prevRow, nextRank);
                             nextRank -= 1;
                             findsSortKey = true;
                             inputIter.remove();
                         } else if (findsSortKey) {
                             if (nextRank == rankEnd) {
-                                collectInsert(out, prevRow, nextRank);
+                                collectInsert(out, ctx.getCurrentKey(), prevRow, nextRank);
                             }
                         }
                         nextRank += 1;
@@ -454,8 +461,8 @@ public class RetractableTopNFunction extends AbstractTopNFunction {
                 long count = entry.getValue();
                 // gets the rank of last record with same sortKey
                 long rankOfLastRecord = nextRank + count - 1;
-                if (rankOfLastRecord < rankEnd) {
-                    nextRank = rankOfLastRecord + 1;
+                if (rankOfLastRecord < Integer.MAX_VALUE && rankOfLastRecord < rankEnd) {
+                    nextRank = (int) rankOfLastRecord + 1;
                 } else {
                     // sends the record if there is a record recently upgrades to Top-N
                     int index = Long.valueOf(rankEnd - nextRank).intValue();

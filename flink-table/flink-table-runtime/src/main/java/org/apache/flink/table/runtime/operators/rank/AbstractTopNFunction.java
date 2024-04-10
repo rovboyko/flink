@@ -72,6 +72,9 @@ public abstract class AbstractTopNFunction extends KeyedProcessFunction<RowData,
     protected final InternalTypeInfo<RowData> inputRowType;
     protected final KeySelector<RowData, RowData> sortKeySelector;
 
+    private TopNOutputBundleWrapper outputBundleWrapper;
+    private final long outputBufferSize;
+
     protected KeyContext keyContext;
     private final boolean isConstantRankEnd;
     private final long rankStart;
@@ -95,7 +98,8 @@ public abstract class AbstractTopNFunction extends KeyedProcessFunction<RowData,
             RankType rankType,
             RankRange rankRange,
             boolean generateUpdateBefore,
-            boolean outputRankNumber) {
+            boolean outputRankNumber,
+            long outputBufferSize) {
         this.ttlConfig = ttlConfig;
         // TODO support RANK and DENSE_RANK
         switch (rankType) {
@@ -135,6 +139,7 @@ public abstract class AbstractTopNFunction extends KeyedProcessFunction<RowData,
         this.inputRowType = inputRowType;
         this.outputRankNumber = outputRankNumber;
         this.sortKeySelector = sortKeySelector;
+        this.outputBufferSize = outputBufferSize;
     }
 
     @Override
@@ -156,6 +161,10 @@ public abstract class AbstractTopNFunction extends KeyedProcessFunction<RowData,
                         getRuntimeContext().getUserCodeClassLoader());
         generatedSortKeyComparator = null;
         invalidCounter = getRuntimeContext().getMetricGroup().counter("topn.invalidTopSize");
+
+        if (outputBufferSize > 0) {
+            outputBundleWrapper = new TopNOutputBundleWrapper(outputBufferSize);
+        }
 
         // initialize rankEndFetcher
         if (!isConstantRankEnd) {
@@ -179,6 +188,14 @@ public abstract class AbstractTopNFunction extends KeyedProcessFunction<RowData,
                                     + rankEndIdxType.getClass().getName());
             }
         }
+    }
+
+    @Override
+    public void close() throws Exception {
+        if (outputBundleWrapper != null) {
+            outputBundleWrapper.finishBundle();
+        }
+        super.close();
     }
 
     /**
@@ -245,9 +262,14 @@ public abstract class AbstractTopNFunction extends KeyedProcessFunction<RowData,
                 .<Long, Gauge<Long>>gauge("topn.cache.size", () -> heapSize);
     }
 
-    protected void collectInsert(Collector<RowData> out, RowData inputRow, long rank) {
+    protected <K> void collectInsert(
+            Collector<RowData> out, RowData key, RowData inputRow, int rank) throws Exception {
         if (isInRankRange(rank)) {
-            out.collect(createOutputRow(inputRow, rank, RowKind.INSERT));
+            if (outputRankNumber && outputBundleWrapper != null) {
+                outputBundleWrapper.collect(out, key, rank, inputRow, RowKind.INSERT);
+            } else {
+                out.collect(createOutputRow(inputRow, rank, RowKind.INSERT));
+            }
         }
     }
 
@@ -256,9 +278,14 @@ public abstract class AbstractTopNFunction extends KeyedProcessFunction<RowData,
         out.collect(inputRow);
     }
 
-    protected void collectDelete(Collector<RowData> out, RowData inputRow, long rank) {
+    protected void collectDelete(Collector<RowData> out, RowData key, RowData inputRow, int rank)
+            throws Exception {
         if (isInRankRange(rank)) {
-            out.collect(createOutputRow(inputRow, rank, RowKind.DELETE));
+            if (outputRankNumber && outputBundleWrapper != null) {
+                outputBundleWrapper.collect(out, key, rank, inputRow, RowKind.DELETE);
+            } else {
+                out.collect(createOutputRow(inputRow, rank, RowKind.DELETE));
+            }
         }
     }
 
@@ -267,9 +294,14 @@ public abstract class AbstractTopNFunction extends KeyedProcessFunction<RowData,
         out.collect(inputRow);
     }
 
-    protected void collectUpdateAfter(Collector<RowData> out, RowData inputRow, long rank) {
+    protected void collectUpdateAfter(
+            Collector<RowData> out, RowData key, RowData inputRow, int rank) throws Exception {
         if (isInRankRange(rank)) {
-            out.collect(createOutputRow(inputRow, rank, RowKind.UPDATE_AFTER));
+            if (outputRankNumber && outputBundleWrapper != null) {
+                outputBundleWrapper.collect(out, key, rank, inputRow, RowKind.UPDATE_AFTER);
+            } else {
+                out.collect(createOutputRow(inputRow, rank, RowKind.UPDATE_AFTER));
+            }
         }
     }
 
@@ -278,9 +310,14 @@ public abstract class AbstractTopNFunction extends KeyedProcessFunction<RowData,
         out.collect(inputRow);
     }
 
-    protected void collectUpdateBefore(Collector<RowData> out, RowData inputRow, long rank) {
+    protected void collectUpdateBefore(
+            Collector<RowData> out, RowData key, RowData inputRow, int rank) throws Exception {
         if (generateUpdateBefore && isInRankRange(rank)) {
-            out.collect(createOutputRow(inputRow, rank, RowKind.UPDATE_BEFORE));
+            if (outputRankNumber && outputBundleWrapper != null) {
+                outputBundleWrapper.collect(out, key, rank, inputRow, RowKind.UPDATE_BEFORE);
+            } else {
+                out.collect(createOutputRow(inputRow, rank, RowKind.UPDATE_BEFORE));
+            }
         }
     }
 
@@ -288,6 +325,12 @@ public abstract class AbstractTopNFunction extends KeyedProcessFunction<RowData,
         if (generateUpdateBefore) {
             inputRow.setRowKind(RowKind.UPDATE_BEFORE);
             out.collect(inputRow);
+        }
+    }
+
+    public void finishElementProcessing(RowData inputRow) throws Exception {
+        if (outputRankNumber && outputBundleWrapper != null) {
+            outputBundleWrapper.finishElementProcessing(inputRow);
         }
     }
 

@@ -51,7 +51,8 @@ public class AppendOnlyFirstNFunction extends AbstractTopNFunction {
             RankType rankType,
             RankRange rankRange,
             boolean generateUpdateBefore,
-            boolean outputRankNumber) {
+            boolean outputRankNumber,
+            long outputBufferSize) {
         super(
                 ttlConfig,
                 inputRowType,
@@ -60,7 +61,8 @@ public class AppendOnlyFirstNFunction extends AbstractTopNFunction {
                 rankType,
                 rankRange,
                 generateUpdateBefore,
-                outputRankNumber);
+                outputRankNumber,
+                outputBufferSize);
     }
 
     @Override
@@ -90,7 +92,7 @@ public class AppendOnlyFirstNFunction extends AbstractTopNFunction {
         state.update(currentRank);
 
         if (outputRankNumber || hasOffset()) {
-            collectInsert(out, input, currentRank);
+            collectInsert(out, context.getCurrentKey(), input, currentRank);
         } else {
             collectInsert(out, input);
         }

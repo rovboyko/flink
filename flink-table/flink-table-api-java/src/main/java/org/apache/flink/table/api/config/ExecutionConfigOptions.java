@@ -428,6 +428,26 @@ public class ExecutionConfigOptions {
                                     + TABLE_EXEC_MINIBATCH_ENABLED.key()
                                     + " is set true, its value must be positive.");
 
+    @Documentation.TableOption(execMode = Documentation.ExecMode.STREAMING)
+    public static final ConfigOption<Boolean> TABLE_EXEC_RANK_OUTPUT_BUFFER_ENABLED =
+            key("table.exec.rank.output-buffer.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "This parameter was copied from table.exec.mini-batch.enabled "
+                                    + "only for clean measuring the performance. In production the parameter "
+                                    + "table.exec.mini-batch.enabled will be used instead.");
+
+    @Documentation.TableOption(execMode = Documentation.ExecMode.STREAMING)
+    public static final ConfigOption<Long> TABLE_EXEC_RANK_OUTPUT_BUFFER_SIZE =
+            key("table.exec.rank.output-buffer.size")
+                    .longType()
+                    .defaultValue(-1L)
+                    .withDescription(
+                            "This parameter was copied from table.exec.mini-batch.size "
+                                    + "only for clean measuring the performance. In production the parameter "
+                                    + "table.exec.mini-batch.size will be used instead.");
+
     // ------------------------------------------------------------------------
     //  Other Exec Options
     // ------------------------------------------------------------------------

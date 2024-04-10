@@ -72,6 +72,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.stream.IntStream;
 
+import static org.apache.flink.table.api.config.ExecutionConfigOptions.TABLE_EXEC_RANK_OUTPUT_BUFFER_ENABLED;
+import static org.apache.flink.table.api.config.ExecutionConfigOptions.TABLE_EXEC_RANK_OUTPUT_BUFFER_SIZE;
 import static org.apache.flink.table.api.config.ExecutionConfigOptions.TABLE_EXEC_RANK_TOPN_CACHE_SIZE;
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkNotNull;
@@ -234,6 +236,10 @@ public class StreamExecRank extends ExecNodeBase<RowData>
                 StateMetadata.getStateTtlForOneInputOperator(config, stateMetadataList);
         StateTtlConfig ttlConfig = StateConfigUtil.createTtlConfig(stateRetentionTime);
 
+        boolean isMiniBatchEnabled = config.get(TABLE_EXEC_RANK_OUTPUT_BUFFER_ENABLED);
+        long outputBufferSize =
+                isMiniBatchEnabled ? config.get(TABLE_EXEC_RANK_OUTPUT_BUFFER_SIZE) : 0L;
+
         AbstractTopNFunction processFunction;
         if (rankStrategy instanceof RankProcessStrategy.AppendFastStrategy) {
             if (sortFields.length == 1
@@ -248,7 +254,8 @@ public class StreamExecRank extends ExecNodeBase<RowData>
                                 rankType,
                                 rankRange,
                                 generateUpdateBefore,
-                                outputRankNumber);
+                                outputRankNumber,
+                                outputBufferSize);
             } else if (RankUtil.isTop1(rankRange)) {
                 processFunction =
                         new FastTop1Function(
@@ -260,7 +267,8 @@ public class StreamExecRank extends ExecNodeBase<RowData>
                                 rankRange,
                                 generateUpdateBefore,
                                 outputRankNumber,
-                                cacheSize);
+                                cacheSize,
+                                outputBufferSize);
             } else {
                 processFunction =
                         new AppendOnlyTopNFunction(
@@ -272,7 +280,8 @@ public class StreamExecRank extends ExecNodeBase<RowData>
                                 rankRange,
                                 generateUpdateBefore,
                                 outputRankNumber,
-                                cacheSize);
+                                cacheSize,
+                                outputBufferSize);
             }
         } else if (rankStrategy instanceof RankProcessStrategy.UpdateFastStrategy) {
             if (RankUtil.isTop1(rankRange)) {
@@ -286,7 +295,8 @@ public class StreamExecRank extends ExecNodeBase<RowData>
                                 rankRange,
                                 generateUpdateBefore,
                                 outputRankNumber,
-                                cacheSize);
+                                cacheSize,
+                                outputBufferSize);
             } else {
                 RankProcessStrategy.UpdateFastStrategy updateFastStrategy =
                         (RankProcessStrategy.UpdateFastStrategy) rankStrategy;
@@ -307,7 +317,8 @@ public class StreamExecRank extends ExecNodeBase<RowData>
                                 rankRange,
                                 generateUpdateBefore,
                                 outputRankNumber,
-                                cacheSize);
+                                cacheSize,
+                                outputBufferSize);
             }
             // TODO Use UnaryUpdateTopNFunction after SortedMapState is merged
         } else if (rankStrategy instanceof RankProcessStrategy.RetractStrategy) {
@@ -336,7 +347,8 @@ public class StreamExecRank extends ExecNodeBase<RowData>
                             rankRange,
                             generatedEqualiser,
                             generateUpdateBefore,
-                            outputRankNumber);
+                            outputRankNumber,
+                            outputBufferSize);
         } else {
             throw new TableException(
                     String.format("rank strategy:%s is not supported.", rankStrategy));

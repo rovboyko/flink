@@ -111,7 +111,8 @@ public class UpdatableTopNFunction extends AbstractTopNFunction implements Check
             RankRange rankRange,
             boolean generateUpdateBefore,
             boolean outputRankNumber,
-            long cacheSize) {
+            long cacheSize,
+            long outputBufferSize) {
         super(
                 ttlConfig,
                 inputRowType,
@@ -120,7 +121,8 @@ public class UpdatableTopNFunction extends AbstractTopNFunction implements Check
                 rankType,
                 rankRange,
                 generateUpdateBefore,
-                outputRankNumber);
+                outputRankNumber,
+                outputBufferSize);
         this.rowKeyType = rowKeySelector.getProducedType();
         this.cacheSize = cacheSize;
         this.inputRowSer = inputRowType.createSerializer(new SerializerConfigImpl());
@@ -181,10 +183,12 @@ public class UpdatableTopNFunction extends AbstractTopNFunction implements Check
         if (outputRankNumber || hasOffset()) {
             // the without-number-algorithm can't handle topN with offset,
             // so use the with-number-algorithm to handle offset
-            processElementWithRowNumber(input, out);
+            processElementWithRowNumber(input, out, context);
         } else {
             processElementWithoutRowNumber(input, out);
         }
+
+        finishElementProcessing(input);
     }
 
     @Override
@@ -257,7 +261,7 @@ public class UpdatableTopNFunction extends AbstractTopNFunction implements Check
         }
     }
 
-    private void processElementWithRowNumber(RowData inputRow, Collector<RowData> out)
+    private void processElementWithRowNumber(RowData inputRow, Collector<RowData> out, Context ctx)
             throws Exception {
         RowData sortKey = sortKeySelector.getKey(inputRow);
         RowData rowKey = rowKeySelector.getKey(inputRow);
@@ -273,8 +277,9 @@ public class UpdatableTopNFunction extends AbstractTopNFunction implements Check
                 int rank = rankAndInnerRank.f0;
                 int innerRank = rankAndInnerRank.f1;
                 rowKeyMap.put(rowKey, new RankRow(inputRowSer.copy(inputRow), innerRank, true));
-                collectUpdateBefore(out, oldRow.row, rank); // retract old record
-                collectUpdateAfter(out, inputRow, rank);
+                collectUpdateBefore(
+                        out, ctx.getCurrentKey(), oldRow.row, rank); // retract old record
+                collectUpdateAfter(out, ctx.getCurrentKey(), inputRow, rank);
                 return;
             } else {
                 Tuple2<Integer, Integer> oldRankAndInnerRank =
@@ -290,7 +295,8 @@ public class UpdatableTopNFunction extends AbstractTopNFunction implements Check
 
                 if (compare < 0) {
                     // sortKey is higher than oldSortKey
-                    emitRecordsWithRowNumber(sortKey, inputRow, out, oldSortKey, oldRow, oldRank);
+                    emitRecordsWithRowNumber(
+                            sortKey, inputRow, out, oldSortKey, oldRow, oldRank, ctx);
                 } else {
                     String inputRowStr = rowConverter.toExternal(inputRow).toString();
                     String errorMsg =
@@ -311,7 +317,7 @@ public class UpdatableTopNFunction extends AbstractTopNFunction implements Check
                         int newRank = newRankAndInnerRank.f0;
                         // affect rank range: [oldRank, newRank]
                         emitRecordsWithRowNumberIgnoreStateError(
-                                inputRow, newRank, oldRow, oldRank, out);
+                                inputRow, newRank, oldRow, oldRank, out, ctx);
                     } else {
                         throw new RuntimeException(errorMsg);
                     }
@@ -323,7 +329,7 @@ public class UpdatableTopNFunction extends AbstractTopNFunction implements Check
             rowKeyMap.put(rowKey, new RankRow(inputRowSer.copy(inputRow), size, true));
 
             // emit records
-            emitRecordsWithRowNumber(sortKey, inputRow, out);
+            emitRecordsWithRowNumber(sortKey, inputRow, out, ctx);
         }
     }
 
@@ -358,13 +364,19 @@ public class UpdatableTopNFunction extends AbstractTopNFunction implements Check
     }
 
     private void emitRecordsWithRowNumberIgnoreStateError(
-            RowData newRow, int newRank, RankRow oldRow, int oldRank, Collector<RowData> out) {
+            RowData newRow,
+            int newRank,
+            RankRow oldRow,
+            int oldRank,
+            Collector<RowData> out,
+            Context ctx)
+            throws Exception {
         Iterator<Map.Entry<RowData, Collection<RowData>>> iterator = buffer.entrySet().iterator();
         int currentRank = 0;
         RowData currentRow = null;
 
         // emit UB of the old row first
-        collectUpdateBefore(out, oldRow.row, oldRank);
+        collectUpdateBefore(out, ctx.getCurrentKey(), oldRow.row, oldRank);
         // update all other affected rank rows
         affected:
         while (iterator.hasNext()) {
@@ -379,18 +391,19 @@ public class UpdatableTopNFunction extends AbstractTopNFunction implements Check
                     break affected;
                 }
                 if (oldRank <= currentRank) {
-                    collectUpdateBefore(out, currentRow, currentRank + 1);
-                    collectUpdateAfter(out, currentRow, currentRank);
+                    collectUpdateBefore(out, ctx.getCurrentKey(), currentRow, currentRank + 1);
+                    collectUpdateAfter(out, ctx.getCurrentKey(), currentRow, currentRank);
                 }
             }
         }
         // at last emit UA of the new row
-        collectUpdateAfter(out, newRow, newRank);
+        collectUpdateAfter(out, ctx.getCurrentKey(), newRow, newRank);
     }
 
-    private void emitRecordsWithRowNumber(RowData sortKey, RowData inputRow, Collector<RowData> out)
+    private void emitRecordsWithRowNumber(
+            RowData sortKey, RowData inputRow, Collector<RowData> out, Context context)
             throws Exception {
-        emitRecordsWithRowNumber(sortKey, inputRow, out, null, null, -1);
+        emitRecordsWithRowNumber(sortKey, inputRow, out, null, null, -1, context);
     }
 
     private void emitRecordsWithRowNumber(
@@ -399,7 +412,8 @@ public class UpdatableTopNFunction extends AbstractTopNFunction implements Check
             Collector<RowData> out,
             RowData oldSortKey,
             RankRow oldRow,
-            int oldRank)
+            int oldRank,
+            Context ctx)
             throws Exception {
 
         Iterator<Map.Entry<RowData, Collection<RowData>>> iterator = buffer.entrySet().iterator();
@@ -425,13 +439,13 @@ public class UpdatableTopNFunction extends AbstractTopNFunction implements Check
                     while (rowKeyIter.hasNext() && isInRankEnd(currentRank)) {
                         RowData rowKey = rowKeyIter.next();
                         RankRow prevRow = rowKeyMap.get(rowKey);
-                        collectUpdateBefore(out, prevRow.row, currentRank);
+                        collectUpdateBefore(out, ctx.getCurrentKey(), prevRow.row, currentRank);
                         if (currentRow == inputRow && oldRow != null && !oldRowRetracted) {
                             // In a same unique key, we should retract oldRow first.
-                            collectUpdateBefore(out, oldRow.row, oldRank);
+                            collectUpdateBefore(out, ctx.getCurrentKey(), oldRow.row, oldRank);
                             oldRowRetracted = true;
                         }
-                        collectUpdateAfter(out, currentRow, currentRank);
+                        collectUpdateAfter(out, ctx.getCurrentKey(), currentRow, currentRank);
                         currentRow = prevRow.row;
                         currentRank += 1;
                     }
@@ -444,13 +458,13 @@ public class UpdatableTopNFunction extends AbstractTopNFunction implements Check
                         while (rowKeyIter.hasNext() && currentRank < oldRank) {
                             RowData rowKey = rowKeyIter.next();
                             RankRow prevRow = rowKeyMap.get(rowKey);
-                            collectUpdateBefore(out, prevRow.row, currentRank);
+                            collectUpdateBefore(out, ctx.getCurrentKey(), prevRow.row, currentRank);
                             if (currentRow == inputRow && oldRow != null && !oldRowRetracted) {
                                 // In a same unique key, we should retract oldRow first.
-                                collectUpdateBefore(out, oldRow.row, oldRank);
+                                collectUpdateBefore(out, ctx.getCurrentKey(), oldRow.row, oldRank);
                                 oldRowRetracted = true;
                             }
-                            collectUpdateAfter(out, currentRow, currentRank);
+                            collectUpdateAfter(out, ctx.getCurrentKey(), currentRow, currentRank);
                             currentRow = prevRow.row;
                             currentRank += 1;
                         }
@@ -468,15 +482,15 @@ public class UpdatableTopNFunction extends AbstractTopNFunction implements Check
             if (oldRow == null) {
                 // input is a new record, and there is no enough elements in Top-N
                 // so emit INSERT message for the new record.
-                collectInsert(out, currentRow, currentRank);
+                collectInsert(out, ctx.getCurrentKey(), currentRow, currentRank);
             } else {
                 // input is an update record, current we reach the old rank position of
                 // the old record, so emit UPDATE_BEFORE and UPDATE_AFTER for this rank number
                 checkArgument(currentRank == oldRank);
                 if (!oldRowRetracted) {
-                    collectUpdateBefore(out, oldRow.row, oldRank);
+                    collectUpdateBefore(out, ctx.getCurrentKey(), oldRow.row, oldRank);
                 }
-                collectUpdateAfter(out, currentRow, currentRank);
+                collectUpdateAfter(out, ctx.getCurrentKey(), currentRow, currentRank);
             }
             // this is either a new record within top-n range or an update record,
             // so top-n elements don't overflow, there is no need to remove records out of Top-N

@@ -37,7 +37,8 @@ public class AppendOnlyTopNFunctionTest extends TopNFunctionTestBase {
             RankType rankType,
             RankRange rankRange,
             boolean generateUpdateBefore,
-            boolean outputRankNumber) {
+            boolean outputRankNumber,
+            int outputBufferSize) {
         return new AppendOnlyTopNFunction(
                 ttlConfig,
                 inputRowType,
@@ -47,13 +48,14 @@ public class AppendOnlyTopNFunctionTest extends TopNFunctionTestBase {
                 rankRange,
                 generateUpdateBefore,
                 outputRankNumber,
-                cacheSize);
+                cacheSize,
+                outputBufferSize);
     }
 
     @Test
     public void testVariableRankRange() throws Exception {
         AbstractTopNFunction func =
-                createFunction(RankType.ROW_NUMBER, new VariableRankRange(1), true, false);
+                createFunction(RankType.ROW_NUMBER, new VariableRankRange(1), true, false, 0);
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness = createTestHarness(func);
         testHarness.open();
         testHarness.processElement(insertRecord("book", 2L, 12));

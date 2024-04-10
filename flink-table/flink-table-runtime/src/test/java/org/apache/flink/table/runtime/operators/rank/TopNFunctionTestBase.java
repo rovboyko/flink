@@ -130,30 +130,30 @@ abstract class TopNFunctionTestBase {
     @Test(expected = UnsupportedOperationException.class)
     public void testInvalidVariableRankRangeWithIntType() throws Exception {
         AbstractTopNFunction func =
-                createFunction(RankType.ROW_NUMBER, new VariableRankRange(0), true, false);
+                createFunction(RankType.ROW_NUMBER, new VariableRankRange(0), true, false, 0);
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness = createTestHarness(func);
         testHarness.open();
     }
 
     @Test(expected = UnsupportedOperationException.class)
     public void testNotSupportRank() throws Exception {
-        createFunction(RankType.RANK, new ConstantRankRange(1, 10), true, true);
+        createFunction(RankType.RANK, new ConstantRankRange(1, 10), true, true, 0);
     }
 
     @Test(expected = UnsupportedOperationException.class)
     public void testNotSupportDenseRank() throws Exception {
-        createFunction(RankType.DENSE_RANK, new ConstantRankRange(1, 10), true, true);
+        createFunction(RankType.DENSE_RANK, new ConstantRankRange(1, 10), true, true, 0);
     }
 
     @Test(expected = UnsupportedOperationException.class)
     public void testNotSupportWithoutRankEnd() throws Exception {
-        createFunction(RankType.ROW_NUMBER, new ConstantRankRangeWithoutEnd(1), true, true);
+        createFunction(RankType.ROW_NUMBER, new ConstantRankRangeWithoutEnd(1), true, true, 0);
     }
 
     @Test
     public void testDisableGenerateUpdateBefore() throws Exception {
         AbstractTopNFunction func =
-                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(1, 2), false, false);
+                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(1, 2), false, false, 0);
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness = createTestHarness(func);
         testHarness.open();
         testHarness.processElement(insertRecord("book", 1L, 12));
@@ -186,7 +186,7 @@ abstract class TopNFunctionTestBase {
     @Test
     public void testDisableGenerateUpdateBeforeAndOutputRankNumber() throws Exception {
         AbstractTopNFunction func =
-                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(1, 2), false, true);
+                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(1, 2), false, true, 0);
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness = createTestHarness(func);
         testHarness.open();
         testHarness.processElement(insertRecord("book", 1L, 12));
@@ -218,7 +218,7 @@ abstract class TopNFunctionTestBase {
     @Test
     public void testOutputRankNumberWithConstantRankRange() throws Exception {
         AbstractTopNFunction func =
-                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(1, 2), true, true);
+                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(1, 2), true, true, 0);
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness = createTestHarness(func);
         testHarness.open();
         testHarness.processElement(insertRecord("book", 1L, 12));
@@ -252,7 +252,7 @@ abstract class TopNFunctionTestBase {
     @Test
     public void testConstantRankRangeWithOffset() throws Exception {
         AbstractTopNFunction func =
-                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(2, 2), true, false);
+                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(2, 2), true, false, 0);
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness = createTestHarness(func);
         testHarness.open();
         testHarness.processElement(insertRecord("book", 1L, 12));
@@ -277,7 +277,7 @@ abstract class TopNFunctionTestBase {
     @Test
     public void testOutputRankNumberWithVariableRankRange() throws Exception {
         AbstractTopNFunction func =
-                createFunction(RankType.ROW_NUMBER, new VariableRankRange(1), true, true);
+                createFunction(RankType.ROW_NUMBER, new VariableRankRange(1), true, true, 0);
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness = createTestHarness(func);
         testHarness.open();
         testHarness.processElement(insertRecord("book", 2L, 12));
@@ -305,7 +305,7 @@ abstract class TopNFunctionTestBase {
     @Test
     public void testConstantRankRangeWithoutOffset() throws Exception {
         AbstractTopNFunction func =
-                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(1, 2), true, false);
+                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(1, 2), true, false, 0);
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness = createTestHarness(func);
         testHarness.open();
         testHarness.processElement(insertRecord("book", 1L, 12));
@@ -332,7 +332,7 @@ abstract class TopNFunctionTestBase {
         testHarness.close();
         expectedOutput.clear();
 
-        func = createFunction(RankType.ROW_NUMBER, new ConstantRankRange(1, 2), true, false);
+        func = createFunction(RankType.ROW_NUMBER, new ConstantRankRange(1, 2), true, false, 0);
         testHarness = createTestHarness(func);
         testHarness.setup();
         testHarness.initializeState(snapshot);
@@ -359,5 +359,6 @@ abstract class TopNFunctionTestBase {
             RankType rankType,
             RankRange rankRange,
             boolean generateUpdateBefore,
-            boolean outputRankNumber);
+            boolean outputRankNumber,
+            int outputBufferSize);
 }

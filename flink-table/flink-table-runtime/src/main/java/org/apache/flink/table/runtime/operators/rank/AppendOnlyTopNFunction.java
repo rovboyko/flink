@@ -77,7 +77,8 @@ public class AppendOnlyTopNFunction extends AbstractTopNFunction {
             RankRange rankRange,
             boolean generateUpdateBefore,
             boolean outputRankNumber,
-            long cacheSize) {
+            long cacheSize,
+            long outputBufferSize) {
         super(
                 ttlConfig,
                 inputRowType,
@@ -86,7 +87,8 @@ public class AppendOnlyTopNFunction extends AbstractTopNFunction {
                 rankType,
                 rankRange,
                 generateUpdateBefore,
-                outputRankNumber);
+                outputRankNumber,
+                outputBufferSize);
         this.sortKeyType = sortKeySelector.getProducedType();
         this.inputRowSer = inputRowType.createSerializer(new SerializerConfigImpl());
         this.cacheSize = cacheSize;
@@ -139,11 +141,13 @@ public class AppendOnlyTopNFunction extends AbstractTopNFunction {
             if (outputRankNumber || hasOffset()) {
                 // the without-number-algorithm can't handle topN with offset,
                 // so use the with-number-algorithm to handle offset
-                processElementWithRowNumber(sortKey, input, out);
+                processElementWithRowNumber(sortKey, input, out, context);
             } else {
                 processElementWithoutRowNumber(input, out);
             }
         }
+
+        finishElementProcessing(input);
     }
 
     private void initHeapStates() throws Exception {
@@ -169,10 +173,11 @@ public class AppendOnlyTopNFunction extends AbstractTopNFunction {
         }
     }
 
-    private void processElementWithRowNumber(RowData sortKey, RowData input, Collector<RowData> out)
+    private void processElementWithRowNumber(
+            RowData sortKey, RowData input, Collector<RowData> out, Context context)
             throws Exception {
         Iterator<Map.Entry<RowData, Collection<RowData>>> iterator = buffer.entrySet().iterator();
-        long currentRank = 0L;
+        int currentRank = 0;
         boolean findsSortKey = false;
         RowData currentRow = null;
         while (iterator.hasNext() && isInRankEnd(currentRank)) {
@@ -187,8 +192,8 @@ public class AppendOnlyTopNFunction extends AbstractTopNFunction {
                 Iterator<RowData> recordsIter = records.iterator();
                 while (recordsIter.hasNext() && isInRankEnd(currentRank)) {
                     RowData prevRow = recordsIter.next();
-                    collectUpdateBefore(out, prevRow, currentRank);
-                    collectUpdateAfter(out, currentRow, currentRank);
+                    collectUpdateBefore(out, context.getCurrentKey(), prevRow, currentRank);
+                    collectUpdateAfter(out, context.getCurrentKey(), currentRow, currentRank);
                     currentRow = prevRow;
                     currentRank += 1;
                 }
@@ -198,7 +203,7 @@ public class AppendOnlyTopNFunction extends AbstractTopNFunction {
         }
         if (isInRankEnd(currentRank)) {
             // there is no enough elements in Top-N, emit INSERT message for the new record.
-            collectInsert(out, currentRow, currentRank);
+            collectInsert(out, context.getCurrentKey(), currentRow, currentRank);
         }
 
         // remove the records associated to the sort key which is out of topN

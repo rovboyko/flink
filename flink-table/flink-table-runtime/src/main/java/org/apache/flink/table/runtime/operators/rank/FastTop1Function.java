@@ -75,7 +75,8 @@ public class FastTop1Function extends AbstractTopNFunction implements Checkpoint
             RankRange rankRange,
             boolean generateUpdateBefore,
             boolean outputRankNumber,
-            long cacheSize) {
+            long cacheSize,
+            long outputBufferSize) {
         super(
                 ttlConfig,
                 inputRowType,
@@ -84,7 +85,8 @@ public class FastTop1Function extends AbstractTopNFunction implements Checkpoint
                 rankType,
                 rankRange,
                 generateUpdateBefore,
-                outputRankNumber);
+                outputRankNumber,
+                outputBufferSize);
 
         this.inputRowSer = inputRowType.createSerializer(new SerializerConfigImpl());
         this.cacheSize = cacheSize;
@@ -134,7 +136,7 @@ public class FastTop1Function extends AbstractTopNFunction implements Checkpoint
         if (prevRow == null) {
             kvCache.put(currentKey, inputRowSer.copy(input));
             if (outputRankNumber) {
-                collectInsert(out, input, 1);
+                collectInsert(out, ctx.getCurrentKey(), input, 1);
             } else {
                 collectInsert(out, input);
             }
@@ -150,8 +152,8 @@ public class FastTop1Function extends AbstractTopNFunction implements Checkpoint
             // Note: partition key is unique key if only top-1 is desired,
             //  thus emitting UB and UA here
             if (outputRankNumber) {
-                collectUpdateBefore(out, prevRow, 1);
-                collectUpdateAfter(out, input, 1);
+                collectUpdateBefore(out, ctx.getCurrentKey(), prevRow, 1);
+                collectUpdateAfter(out, ctx.getCurrentKey(), input, 1);
             } else {
                 collectUpdateBefore(out, prevRow);
                 collectUpdateAfter(out, input);

@@ -35,7 +35,8 @@ public class AppendOnlyFirstNFunctionTest extends TopNFunctionTestBase {
             RankType rankType,
             RankRange rankRange,
             boolean generateUpdateBefore,
-            boolean outputRankNumber) {
+            boolean outputRankNumber,
+            int outputBufferSize) {
         return new AppendOnlyFirstNFunction(
                 ttlConfig,
                 inputRowType,
@@ -44,14 +45,15 @@ public class AppendOnlyFirstNFunctionTest extends TopNFunctionTestBase {
                 rankType,
                 rankRange,
                 generateUpdateBefore,
-                outputRankNumber);
+                outputRankNumber,
+                outputBufferSize);
     }
 
     @Override
     @Test
     public void testDisableGenerateUpdateBefore() throws Exception {
         AbstractTopNFunction func =
-                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(1, 2), false, false);
+                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(1, 2), false, false, 0);
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness = createTestHarness(func);
         testHarness.open();
         testHarness.processElement(insertRecord("book", 2L, 12));
@@ -75,7 +77,7 @@ public class AppendOnlyFirstNFunctionTest extends TopNFunctionTestBase {
     @Test
     public void testDisableGenerateUpdateBeforeAndOutputRankNumber() throws Exception {
         AbstractTopNFunction func =
-                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(1, 2), false, true);
+                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(1, 2), false, true, 0);
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness = createTestHarness(func);
         testHarness.open();
         testHarness.processElement(insertRecord("book", 2L, 12));
@@ -99,7 +101,7 @@ public class AppendOnlyFirstNFunctionTest extends TopNFunctionTestBase {
     @Test
     public void testOutputRankNumberWithConstantRankRange() throws Exception {
         AbstractTopNFunction func =
-                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(1, 2), true, true);
+                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(1, 2), true, true, 0);
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness = createTestHarness(func);
         testHarness.open();
         testHarness.processElement(insertRecord("book", 2L, 12));
@@ -123,7 +125,7 @@ public class AppendOnlyFirstNFunctionTest extends TopNFunctionTestBase {
     @Test
     public void testConstantRankRangeWithOffset() throws Exception {
         AbstractTopNFunction func =
-                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(2, 2), true, false);
+                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(2, 2), true, false, 0);
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness = createTestHarness(func);
         testHarness.open();
         testHarness.processElement(insertRecord("book", 2L, 12));
@@ -145,7 +147,7 @@ public class AppendOnlyFirstNFunctionTest extends TopNFunctionTestBase {
     @Test
     public void testConstantRankRangeWithoutOffset() throws Exception {
         AbstractTopNFunction func =
-                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(1, 2), true, false);
+                createFunction(RankType.ROW_NUMBER, new ConstantRankRange(1, 2), true, false, 0);
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness = createTestHarness(func);
         testHarness.open();
         testHarness.processElement(insertRecord("book", 2L, 12));
@@ -169,7 +171,7 @@ public class AppendOnlyFirstNFunctionTest extends TopNFunctionTestBase {
     @Test
     public void testOutputRankNumberWithVariableRankRange() throws Exception {
         AbstractTopNFunction func =
-                createFunction(RankType.ROW_NUMBER, new VariableRankRange(1), false, true);
+                createFunction(RankType.ROW_NUMBER, new VariableRankRange(1), false, true, 0);
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness = createTestHarness(func);
         testHarness.open();
         testHarness.processElement(insertRecord("book", 2L, 12));
