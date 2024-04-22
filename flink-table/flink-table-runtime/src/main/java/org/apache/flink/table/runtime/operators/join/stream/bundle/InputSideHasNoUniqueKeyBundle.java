@@ -26,6 +26,7 @@ import javax.annotation.Nullable;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
@@ -41,18 +42,18 @@ public class InputSideHasNoUniqueKeyBundle extends BufferBundle<Map<Integer, Lis
      */
     @Override
     public int addRecord(RowData joinKey, @Nullable RowData uniqueKey, RowData record) {
-        bundle.computeIfAbsent(joinKey, k -> new HashMap<>());
-
         RowKind rowKind = record.getRowKind();
         record.setRowKind(RowKind.INSERT);
         int hashKey = record.hashCode();
         record.setRowKind(rowKind);
 
-        if (!foldRecord(joinKey, hashKey, record)) {
+        List<RowData> list =
+                bundle.computeIfAbsent(joinKey, k -> new LinkedHashMap<>())
+                        .computeIfAbsent(hashKey, k -> new ArrayList<>());
+
+        if (!foldRecord(joinKey, hashKey, record, list)) {
             actualSize++;
-            bundle.computeIfAbsent(joinKey, k -> new HashMap<>())
-                    .computeIfAbsent(hashKey, k -> new ArrayList<>())
-                    .add(record);
+            list.add(record);
         }
         return ++count;
     }
@@ -89,9 +90,8 @@ public class InputSideHasNoUniqueKeyBundle extends BufferBundle<Map<Integer, Lis
      * to +I/+U which refers to {@link RowKind#INSERT}/{@link RowKind#UPDATE_AFTER}. retractMsg
      * refers to -U/-D which refers to {@link RowKind#UPDATE_BEFORE}/{@link RowKind#DELETE}.
      */
-    private boolean foldRecord(RowData joinKey, int hashKey, RowData record) {
-        List<RowData> list = bundle.get(joinKey).computeIfAbsent(hashKey, k -> new ArrayList<>());
-        ListIterator<RowData> iterator = list.listIterator(bundle.get(joinKey).get(hashKey).size());
+    private boolean foldRecord(RowData joinKey, int hashKey, RowData record, List<RowData> list) {
+        ListIterator<RowData> iterator = list.listIterator(list.size());
         while (iterator.hasPrevious()) {
             RowData rec = iterator.previous();
             if ((RowDataUtil.isAccumulateMsg(record) && RowDataUtil.isRetractMsg(rec))

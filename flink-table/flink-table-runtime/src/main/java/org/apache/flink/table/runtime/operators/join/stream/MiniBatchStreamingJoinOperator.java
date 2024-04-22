@@ -154,6 +154,7 @@ public abstract class MiniBatchStreamingJoinOperator extends StreamingJoinOperat
 
     @Override
     public void finishBundle() throws Exception {
+        System.out.println("\nfinishBundle\n");
         if (!leftBuffer.isEmpty() || !rightBuffer.isEmpty()) {
             // update metrics value
             leftBundleReducedSizeGauge.update(leftBuffer.reducedSize());

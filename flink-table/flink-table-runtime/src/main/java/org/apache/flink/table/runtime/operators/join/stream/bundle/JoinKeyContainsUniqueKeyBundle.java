@@ -37,10 +37,10 @@ public class JoinKeyContainsUniqueKeyBundle extends BufferBundle<List<RowData>> 
 
     @Override
     public int addRecord(RowData joinKey, @Nullable RowData uniqueKey, RowData record) {
-        bundle.computeIfAbsent(joinKey, key -> new ArrayList<>());
-        if (!foldRecord(joinKey, record)) {
+        List<RowData> list = bundle.computeIfAbsent(joinKey, key -> new ArrayList<>());
+        if (!foldRecord(joinKey, record, list)) {
             actualSize++;
-            bundle.computeIfAbsent(joinKey, key -> new ArrayList<>()).add(record);
+            list.add(record);
         }
         return ++count;
     }
@@ -76,8 +76,7 @@ public class JoinKeyContainsUniqueKeyBundle extends BufferBundle<List<RowData>> 
      * RowKind#INSERT}. "+U" refers to {@link RowKind#UPDATE_AFTER}. "-U" refers to {@link
      * RowKind#UPDATE_BEFORE}. "-D" refers to {@link RowKind#DELETE}.
      */
-    private boolean foldRecord(RowData joinKey, RowData record) {
-        List<RowData> list = bundle.get(joinKey);
+    private boolean foldRecord(RowData joinKey, RowData record, List<RowData> list) {
         boolean shouldFoldRecord = false;
 
         Optional<RowData> lastElement =

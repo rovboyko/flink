@@ -339,6 +339,54 @@ public final class StreamingMiniBatchJoinOperatorTest extends StreamingJoinOpera
                         "AIR"));
     }
 
+    @Tag("miniBatchSize=3")
+    @Test
+    public void testInnerJoinWithNoUniqueKeyWithFold() throws Exception {
+        testHarness.setStateTtlProcessingTime(1);
+
+        // first batch
+        testHarness.processElement2(insertRecord("Ord#Y", "LineOrd#1", "TRUCK"));
+        testHarness.processElement1(
+                insertRecord("Ord#1", "LineOrd#1", "1 Bellevue Drive, Pottstown, PA 19464"));
+        testHarness.processElement2(updateBeforeRecord("Ord#Y", "LineOrd#1", "TRUCK"));
+
+        assertor.shouldEmitNothing(testHarness);
+
+        // second batch
+        testHarness.processElement1(
+                updateBeforeRecord("Ord#1", "LineOrd#1", "1 Bellevue Drive, Pottstown, PA 19464"));
+        testHarness.processElement2(updateAfterRecord("Ord#Y", "LineOrd#1", "AIR"));
+        testHarness.processElement1(
+                updateAfterRecord("Ord#1", "LineOrd#1", "2 Bellevue Drive, Pottstown, PA 19464"));
+
+        assertor.shouldEmit(
+                testHarness,
+                rowOfKind(
+                        RowKind.UPDATE_AFTER,
+                        "Ord#1",
+                        "LineOrd#1",
+                        "1 Bellevue Drive, Pottstown, PA 19464",
+                        "Ord#Y",
+                        "LineOrd#1",
+                        "AIR"),
+                rowOfKind(
+                        RowKind.UPDATE_BEFORE,
+                        "Ord#1",
+                        "LineOrd#1",
+                        "1 Bellevue Drive, Pottstown, PA 19464",
+                        "Ord#Y",
+                        "LineOrd#1",
+                        "AIR"),
+                rowOfKind(
+                        RowKind.UPDATE_AFTER,
+                        "Ord#1",
+                        "LineOrd#1",
+                        "2 Bellevue Drive, Pottstown, PA 19464",
+                        "Ord#Y",
+                        "LineOrd#1",
+                        "AIR"));
+    }
+
     @Tag("miniBatchSize=18")
     @Test
     public void testInnerJoinWithJoinKeyContainsUniqueKeyWithinBatch() throws Exception {
@@ -1382,17 +1430,17 @@ public final class StreamingMiniBatchJoinOperatorTest extends StreamingJoinOpera
                         null),
                 rowOfKind(
                         RowKind.INSERT,
-                        "Ord#6",
+                        "Ord#5",
                         "LineOrd#5",
-                        "8 Bellevue Drive, Pottstown, PF 19464",
+                        "7 Bellevue Drive, Pottstown, PE 19464",
                         null,
                         null,
                         null),
                 rowOfKind(
                         RowKind.INSERT,
-                        "Ord#5",
+                        "Ord#6",
                         "LineOrd#5",
-                        "7 Bellevue Drive, Pottstown, PE 19464",
+                        "8 Bellevue Drive, Pottstown, PF 19464",
                         null,
                         null,
                         null),

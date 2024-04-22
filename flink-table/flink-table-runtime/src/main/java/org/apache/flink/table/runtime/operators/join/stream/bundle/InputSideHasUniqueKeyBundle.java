@@ -25,6 +25,7 @@ import org.apache.flink.types.RowKind;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -35,13 +36,12 @@ public class InputSideHasUniqueKeyBundle extends BufferBundle<Map<RowData, List<
 
     @Override
     public int addRecord(RowData joinKey, RowData uniqueKey, RowData record) {
-        bundle.computeIfAbsent(joinKey, k -> new HashMap<>())
-                .computeIfAbsent(uniqueKey, k -> new ArrayList<>());
-        if (!foldRecord(joinKey, uniqueKey, record)) {
+        List<RowData> list =
+                bundle.computeIfAbsent(joinKey, k -> new LinkedHashMap<>())
+                        .computeIfAbsent(uniqueKey, k -> new ArrayList<>());
+        if (!foldRecord(joinKey, uniqueKey, record, list)) {
             actualSize++;
-            bundle.computeIfAbsent(joinKey, k -> new HashMap<>())
-                    .computeIfAbsent(uniqueKey, key -> new ArrayList<>())
-                    .add(record);
+            list.add(record);
         }
         return ++count;
     }
@@ -86,8 +86,8 @@ public class InputSideHasUniqueKeyBundle extends BufferBundle<Map<RowData, List<
      * to +I/+U which refers to {@link RowKind#INSERT}/{@link RowKind#UPDATE_AFTER}. retractMsg
      * refers to -U/-D which refers to {@link RowKind#UPDATE_BEFORE}/{@link RowKind#DELETE}.
      */
-    private boolean foldRecord(RowData joinKey, RowData uniqueKey, RowData record) {
-        List<RowData> list = bundle.get(joinKey).get(uniqueKey);
+    private boolean foldRecord(
+            RowData joinKey, RowData uniqueKey, RowData record, List<RowData> list) {
         boolean shouldFoldRecord = false;
         Optional<RowData> prevRecord =
                 list.isEmpty() ? Optional.empty() : Optional.of(list.get(list.size() - 1));
